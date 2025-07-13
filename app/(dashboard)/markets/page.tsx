@@ -17,6 +17,7 @@ export default function MarketsPage() {
         <h1 className="text-3xl font-bold tracking-tight">Markets</h1>
       </div>
 
+
       <Tabs defaultValue="stocks" className="space-y-4">
         <TabsList>
           <TabsTrigger value="stocks">Stocks</TabsTrigger>
