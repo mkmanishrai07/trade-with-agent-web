@@ -21,12 +21,15 @@ jobs:
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
           echo "Current branch: $BRANCH_NAME"
 
-          # Derive base branch (first part before '/')
-          BASE_BRANCH=$(echo "$BRANCH_NAME" | cut -d'/' -f1)
-
-          # Fallback to development if not main/staging/development
-          if [[ "$BASE_BRANCH" != "main" && "$BASE_BRANCH" != "staging" && "$BASE_BRANCH" != "development" ]]; then
+          # Determine base branch from keywords in branch name
+          if [[ "$BRANCH_NAME" == dev-* ]]; then
             BASE_BRANCH="development"
+          elif [[ "$BRANCH_NAME" == staging-* ]]; then
+            BASE_BRANCH="staging"
+          elif [[ "$BRANCH_NAME" == main-* ]]; then
+            BASE_BRANCH="main"
+          else
+            BASE_BRANCH="development"  # fallback
           fi
 
           echo "Derived base branch: $BASE_BRANCH"
