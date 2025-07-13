@@ -1,15 +1,21 @@
-import type { Metadata } from "next"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
+import type { Metadata } from "next";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 
 export const metadata: Metadata = {
   title: "Settings | TradeWithAgent",
   description: "Manage your account settings and preferences",
-}
+};
 
 export default function SettingsPage() {
   return (
@@ -50,20 +56,31 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Trading Preferences</CardTitle>
-              <CardDescription>Customize your trading experience</CardDescription>
+              <CardDescription>
+                Customize your trading experience
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="risk-level">Risk Level</Label>
-                    <p className="text-sm text-muted-foreground">Set your preferred risk level for trading</p>
+                    <p className="text-sm text-muted-foreground">
+                      Set your preferred risk level for trading
+                    </p>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Label htmlFor="risk-level" className="text-sm">
                       Low
                     </Label>
-                    <Input id="risk-level" type="range" className="w-[120px]" min="1" max="10" defaultValue="5" />
+                    <Input
+                      id="risk-level"
+                      type="range"
+                      className="w-[120px]"
+                      min="1"
+                      max="10"
+                      defaultValue="5"
+                    />
                     <Label htmlFor="risk-level" className="text-sm">
                       High
                     </Label>
@@ -72,12 +89,16 @@ export default function SettingsPage() {
 
                 <div className="flex items-center space-x-2">
                   <Switch id="auto-trade" />
-                  <Label htmlFor="auto-trade">Enable automatic trading based on AI insights</Label>
+                  <Label htmlFor="auto-trade">
+                    Enable automatic trading based on AI insights
+                  </Label>
                 </div>
 
                 <div className="flex items-center space-x-2">
                   <Switch id="notifications" defaultChecked />
-                  <Label htmlFor="notifications">Receive trading opportunity notifications</Label>
+                  <Label htmlFor="notifications">
+                    Receive trading opportunity notifications
+                  </Label>
                 </div>
               </div>
               <Button>Save Preferences</Button>
@@ -89,13 +110,17 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Notification Settings</CardTitle>
-              <CardDescription>Manage how you receive notifications</CardDescription>
+              <CardDescription>
+                Manage how you receive notifications
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-4">
                 <div className="flex items-center space-x-2">
                   <Switch id="email-notifications" defaultChecked />
-                  <Label htmlFor="email-notifications">Email Notifications</Label>
+                  <Label htmlFor="email-notifications">
+                    Email Notifications
+                  </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Switch id="push-notifications" defaultChecked />
@@ -115,7 +140,9 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Appearance Settings</CardTitle>
-              <CardDescription>Customize the look and feel of your dashboard</CardDescription>
+              <CardDescription>
+                Customize the look and feel of your dashboard
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-4">
@@ -177,7 +204,9 @@ export default function SettingsPage() {
 
                 <div className="flex items-center space-x-2">
                   <Switch id="two-factor" />
-                  <Label htmlFor="two-factor">Enable Two-Factor Authentication</Label>
+                  <Label htmlFor="two-factor">
+                    Enable Two-Factor Authentication
+                  </Label>
                 </div>
               </div>
               <Button>Update Password</Button>
@@ -186,5 +215,5 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }
