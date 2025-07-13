@@ -42,15 +42,9 @@ jobs:
           echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
 
-      # Step 3: Install GitHub CLI
-      - name: Install GitHub CLI
-        run: |
-          sudo apt update
-          sudo apt install gh -y
-
-      # # Step 4: Fetch all remote branches (important for comparing diffs)
-      # - name: Fetch all remote branches
-      #   run: git fetch --all
+      # Step 3: Set up GitHub CLI (used to create PR)
+      - name: Set up GitHub CLI
+        uses: cli/cli-action@v2
 
       # Step 4: Create the Pull Request using GitHub CLI
       - name: Create Pull Request using GitHub CLI
