@@ -48,9 +48,9 @@ jobs:
           sudo apt update
           sudo apt install gh -y
 
-      # Step 4: Fetch all remote branches (important for comparing diffs)
-      - name: Fetch all remote branches
-        run: git fetch --all
+      # # Step 4: Fetch all remote branches (important for comparing diffs)
+      # - name: Fetch all remote branches
+      #   run: git fetch --all
 
       # Step 4: Create the Pull Request using GitHub CLI
       - name: Create Pull Request using GitHub CLI
