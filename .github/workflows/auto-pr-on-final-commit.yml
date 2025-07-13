@@ -1,0 +1,49 @@
+name: Auto PR on Final Commit
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - staging
+      - development
+
+jobs:
+  auto-create-pr:
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, 'final commit')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get current branch name and base
+        id: branchinfo
+        run: |
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          echo "Current branch: $BRANCH_NAME"
+
+          # Derive base branch (first part before '/')
+          BASE_BRANCH=$(echo "$BRANCH_NAME" | cut -d'/' -f1)
+
+          # Fallback to development if not main/staging/development
+          if [[ "$BASE_BRANCH" != "main" && "$BASE_BRANCH" != "staging" && "$BASE_BRANCH" != "development" ]]; then
+            BASE_BRANCH="development"
+          fi
+
+          echo "Derived base branch: $BASE_BRANCH"
+
+          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Auto PR: Final Commit"
+          title: "Auto PR from ${{ steps.branchinfo.outputs.branch }}"
+          body: |
+            Automatically generated pull request:
+            - **Source:** `${{ steps.branchinfo.outputs.branch }}`
+            - **Target:** `${{ steps.branchinfo.outputs.base_branch }}`
+            - Triggered by `final commit`
+          base: ${{ steps.branchinfo.outputs.base_branch }}
+          branch: ${{ steps.branchinfo.outputs.branch }}
