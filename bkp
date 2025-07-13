@@ -79,3 +79,69 @@ jobs:
       #     payload: '{"text": "A new Pull Request has been created: ${{ steps.create_pr.outputs.pr_url }}"}'
       # Step 8: Optionally, you can add a step to label the PR
       # - name: Label the PR
+
+
+
+
+
+
+
+
+
+# Old worfl
+
+
+
+
+name: Auto PR on Final Commit
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - staging
+      - development
+
+jobs:
+  auto-create-pr:
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, 'final commit')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get current branch name and base
+        id: branchinfo
+        run: |
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          echo "Current branch: $BRANCH_NAME"
+
+          # Determine base branch from keywords in branch name
+          if [[ "$BRANCH_NAME" == dev-* ]]; then
+            BASE_BRANCH="development"
+          elif [[ "$BRANCH_NAME" == staging-* ]]; then
+            BASE_BRANCH="staging"
+          elif [[ "$BRANCH_NAME" == main-* ]]; then
+            BASE_BRANCH="main"
+          else
+            BASE_BRANCH="development"  # fallback
+          fi
+
+          echo "Derived base branch: $BASE_BRANCH"
+
+          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Auto PR: Final Commit"
+          title: "Auto PR from ${{ steps.branchinfo.outputs.branch }}"
+          body: |
+            Automatically generated pull request:
+            - **Source:** `${{ steps.branchinfo.outputs.branch }}`
+            - **Target:** `${{ steps.branchinfo.outputs.base_branch }}`
+            - Triggered by `final commit`
+          base: ${{ steps.branchinfo.outputs.base_branch }}
+          branch: ${{ steps.branchinfo.outputs.branch }}
