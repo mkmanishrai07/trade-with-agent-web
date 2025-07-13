@@ -13,16 +13,16 @@ jobs:
     if: contains(github.event.head_commit.message, 'final commit')
 
     steps:
-      # Step 1: Checkout the pushed code
+      # Step 1: Checkout the latest code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Extract branch name and determine base branch
-      - name: Extract branch name and determine base branch
+      # Step 2: Extract the branch name and determine base branch
+      - name: Extract branch info
         id: branchinfo
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          echo "Current branch: $BRANCH_NAME"
+          echo "Detected branch: $BRANCH_NAME"
 
           # Determine base branch based on prefix
           if [[ "$BRANCH_NAME" == dev-* ]]; then
@@ -32,31 +32,50 @@ jobs:
           elif [[ "$BRANCH_NAME" == main-* ]]; then
             BASE_BRANCH="main"
           else
-            BASE_BRANCH="development"
+            BASE_BRANCH="development"  # Default fallback
           fi
 
           echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
 
-      # Step 3: Install GitHub CLI (gh)
+      # Step 3: Install GitHub CLI
       - name: Install GitHub CLI
         run: |
           sudo apt update
           sudo apt install gh -y
 
-      # Step 4: Create Pull Request and print URL
+      # Step 4: Create PR only if not already existing
       - name: Create Pull Request using GitHub CLI
         run: |
           BRANCH_NAME="${{ steps.branchinfo.outputs.branch }}"
           BASE_BRANCH="${{ steps.branchinfo.outputs.base_branch }}"
 
-          echo "Creating PR from '$BRANCH_NAME' to '$BASE_BRANCH'"
+          echo "⏳ Checking for existing PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
 
-          PR_URL=$(gh pr create \
+          # Check for existing PR
+          PR_EXISTS=$(gh pr list \
+            --head "$BRANCH_NAME" \
+            --base "$BASE_BRANCH" \
+            --state open \
+            --json number --jq '.[0].number')
+
+          if [[ -n "$PR_EXISTS" ]]; then
+            echo "⚠️ PR already exists: #$PR_EXISTS"
+            exit 0
+          fi
+
+          echo "🚀 Creating PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
+
+          PR_JSON=$(gh pr create \
             --title "Auto PR from $BRANCH_NAME" \
-            --body "Automatically generated pull request:\n- **Source:** \`$BRANCH_NAME\`\n- **Target:** \`$BASE_BRANCH\`\n- Triggered by \`final commit\`" \
+            --body "Automatically generated PR:\n- **Source:** \`$BRANCH_NAME\`\n- **Target:** \`$BASE_BRANCH\`\n- Triggered by \`final commit\`" \
             --base "$BASE_BRANCH" \
             --head "$BRANCH_NAME" \
-            --json url --jq '.url')
+            --json number,url)
 
-          echo "✅ Pull Request created: $PR_URL"
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          PR_URL=$(echo "$PR_JSON" | jq -r '.url')
+
+          echo "✅ Pull Request #$PR_NUMBER created: $PR_URL"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
