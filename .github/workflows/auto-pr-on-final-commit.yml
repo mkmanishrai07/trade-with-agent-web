@@ -11,17 +11,17 @@ jobs:
   auto-create-pr:
     runs-on: ubuntu-latest
     if: contains(github.event.head_commit.message, 'final commit')
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Get current branch name and base
+      - name: Extract branch info
         id: branchinfo
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          echo "Current branch: $BRANCH_NAME"
+          echo "Detected branch: $BRANCH_NAME"
 
-          # Determine base branch from keywords in branch name
           if [[ "$BRANCH_NAME" == dev-* ]]; then
             BASE_BRANCH="development"
           elif [[ "$BRANCH_NAME" == staging-* ]]; then
@@ -29,24 +29,57 @@ jobs:
           elif [[ "$BRANCH_NAME" == main-* ]]; then
             BASE_BRANCH="main"
           else
-            BASE_BRANCH="development"  # fallback
+            BASE_BRANCH="development"
           fi
-
-          echo "Derived base branch: $BASE_BRANCH"
 
           echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
 
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Auto PR: Final Commit"
-          title: "Auto PR from ${{ steps.branchinfo.outputs.branch }}"
-          body: |
-            Automatically generated pull request:
-            - **Source:** `${{ steps.branchinfo.outputs.branch }}`
-            - **Target:** `${{ steps.branchinfo.outputs.base_branch }}`
-            - Triggered by `final commit`
-          base: ${{ steps.branchinfo.outputs.base_branch }}
-          branch: ${{ steps.branchinfo.outputs.branch }}
+      - name: Install GitHub CLI
+        run: |
+          sudo apt update
+          sudo apt install gh -y
+
+      - name: Fetch all branches for diff check
+        run: git fetch --all
+
+      - name: Create Pull Request using GitHub CLI
+        run: |
+          BRANCH_NAME="${{ steps.branchinfo.outputs.branch }}"
+          BASE_BRANCH="${{ steps.branchinfo.outputs.base_branch }}"
+
+          echo "🧪 Checking for existing PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
+
+          PR_EXISTS=$(gh pr list \
+            --head "$BRANCH_NAME" \
+            --base "$BASE_BRANCH" \
+            --state open \
+            --json number --jq '.[0].number')
+
+          if [[ -n "$PR_EXISTS" ]]; then
+            echo "⚠️ PR already exists: #$PR_EXISTS"
+            exit 0
+          fi
+
+          # Check if there are any changes between branches
+          echo "🔍 Checking diff between '$BASE_BRANCH' and '$BRANCH_NAME'..."
+          COMMITS=$(git rev-list "$BASE_BRANCH..$BRANCH_NAME" --count)
+
+          if [[ "$COMMITS" -eq 0 ]]; then
+            echo "⚠️ No changes between '$BRANCH_NAME' and '$BASE_BRANCH'. Skipping PR."
+            exit 0
+          fi
+
+          echo "🚀 Creating Pull Request from '$BRANCH_NAME' to '$BASE_BRANCH'..."
+
+          gh pr create \
+            --title "Auto PR from $BRANCH_NAME" \
+            --body "Automatically generated PR:\n- **Source:** \`$BRANCH_NAME\`\n- **Target:** \`$BASE_BRANCH\`\n- Triggered by \`final commit\`" \
+            --base "$BASE_BRANCH" \
+            --head "$BRANCH_NAME" \
+            --reviewer your-github-username || {
+              echo "❌ Failed to create PR. Possibly due to incorrect head/base."
+              exit 1
+            }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
