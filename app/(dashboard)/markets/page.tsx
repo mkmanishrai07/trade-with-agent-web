@@ -1,14 +1,14 @@
-import type { Metadata } from "next"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { StockMarkets } from "@/components/markets/stock-markets"
-import { SportsMarkets } from "@/components/markets/sports-markets"
-import { CryptoMarkets } from "@/components/markets/crypto-markets"
-import { ForexMarkets } from "@/components/markets/forex-markets"
+import type { Metadata } from "next";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StockMarkets } from "@/components/markets/stock-markets";
+import { SportsMarkets } from "@/components/markets/sports-markets";
+import { CryptoMarkets } from "@/components/markets/crypto-markets";
+import { ForexMarkets } from "@/components/markets/forex-markets";
 
 export const metadata: Metadata = {
   title: "Markets | TradeWithAgent",
   description: "View live market data for stocks, sports, crypto, and forex",
-}
+};
 
 export default function MarketsPage() {
   return (
@@ -38,5 +38,5 @@ export default function MarketsPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }
