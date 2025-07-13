@@ -38,26 +38,33 @@ jobs:
           sudo apt update
           sudo apt install gh -y
 
-      - name: Create Pull Request using GitHub CLI
-        id: create_pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          BRANCH="${{ steps.branchinfo.outputs.branch }}"
-          BASE="${{ steps.branchinfo.outputs.base_branch }}"
+          - name: Create Pull Request using GitHub CLI
+          id: create_pr
+          env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            BRANCH: ${{ steps.branchinfo.outputs.branch }}
+            BASE: ${{ steps.branchinfo.outputs.base_branch }}
+            run: |
+              echo "Creating PR from '$BRANCH' to '$BASE'..."
 
-          echo "Creating PR from '$BRANCH' to '$BASE'..."
+              # Check for existing PR first
+              EXISTING=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number')
+              if [[ -n "$EXISTING" ]]; then
+                echo "⚠️ Pull Request already exists: #$EXISTING"
+                exit 0
+              fi
 
-          PR_URL=$(gh pr create \
-            --title "Auto PR from $BRANCH" \
-            --body "Automatically generated PR:\n- Source: \`$BRANCH\`\n- Target: \`$BASE\`\n- Triggered by \`final commit\`" \
-            --base "$BASE" \
-            --head "$BRANCH" \
-            --json url --jq '.url')
+              # Create new PR
+              PR_URL=$(gh pr create \
+                --title "Auto PR from $BRANCH" \
+                --body "Automatically generated PR:\n- Source: \`$BRANCH\`\n- Target: \`$BASE\`\n- Triggered by \`final commit\`" \
+                --base "$BASE" \
+                --head "$BRANCH" \
+                --json url --jq '.url')
 
-          echo "✅ PR created: $PR_URL"
-          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+                echo "✅ PR created: $PR_URL"
+                echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
 
       - name: Print PR URL
-        run: | 
+        run: |
           echo "🔗 Pull Request: ${{ steps.create_pr.outputs.pr_url }}"
