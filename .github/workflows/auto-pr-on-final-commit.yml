@@ -10,8 +10,6 @@ on:
 jobs:
   auto-create-pr:
     runs-on: ubuntu-latest
-
-    # Trigger only if commit message contains 'final commit'
     if: contains(github.event.head_commit.message, 'final commit')
 
     steps:
@@ -23,7 +21,6 @@ jobs:
       - name: Extract branch name and determine base branch
         id: branchinfo
         run: |
-          # Get the branch name from GitHub ref
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
           echo "Current branch: $BRANCH_NAME"
 
@@ -35,47 +32,31 @@ jobs:
           elif [[ "$BRANCH_NAME" == main-* ]]; then
             BASE_BRANCH="main"
           else
-            BASE_BRANCH="development"  # fallback
+            BASE_BRANCH="development"
           fi
 
-          # Output values for later steps
           echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
 
-      # Step 3: Set up GitHub CLI (used to create PR)
-      - name: Set up GitHub CLI
-        uses: cli/cli-action@v2
-
-      # Step 4: Create the Pull Request using GitHub CLI
-      - name: Create Pull Request using GitHub CLI
-        id: create_pr
+      # Step 3: Install GitHub CLI (gh)
+      - name: Install GitHub CLI
         run: |
+          sudo apt update
+          sudo apt install gh -y
+
+      # Step 4: Create Pull Request and print URL
+      - name: Create Pull Request using GitHub CLI
+        run: |
+          BRANCH_NAME="${{ steps.branchinfo.outputs.branch }}"
+          BASE_BRANCH="${{ steps.branchinfo.outputs.base_branch }}"
+
+          echo "Creating PR from '$BRANCH_NAME' to '$BASE_BRANCH'"
+
           PR_URL=$(gh pr create \
-            --title "Auto PR from ${{ steps.branchinfo.outputs.branch }}" \
-            --body "Automatically generated pull request:\n- **Source:** \`${{ steps.branchinfo.outputs.branch }}\`\n- **Target:** \`${{ steps.branchinfo.outputs.base_branch }}\`\n- Triggered by \`final commit\`" \
-            --base "${{ steps.branchinfo.outputs.base_branch }}" \
-            --head "${{ steps.branchinfo.outputs.branch }}" \
+            --title "Auto PR from $BRANCH_NAME" \
+            --body "Automatically generated pull request:\n- **Source:** \`$BRANCH_NAME\`\n- **Target:** \`$BASE_BRANCH\`\n- Triggered by \`final commit\`" \
+            --base "$BASE_BRANCH" \
+            --head "$BRANCH_NAME" \
             --json url --jq '.url')
 
           echo "✅ Pull Request created: $PR_URL"
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Step 5: Output PR link in logs (for debugging/visibility)
-      - name: Print PR URL
-        run: |
-          echo "🔗 PR successfully created: ${{ steps.create_pr.outputs.pr_url }}"
-        # - name: Notify about PR creation
-        #   run: |
-        #     echo "A new Pull Request has been created: ${{ steps.create_pr.outputs.pr_url }}"
-        #   env:
-        #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Step 6: Notify about the PR creation (optional)
-      # Step 7: Optionally, you can add a step to notify via email or Slack
-      # - name: Notify via Slack
-      #   uses: slackapi/slack-github-action@v1.15.0
-      #   with:
-      #     payload: '{"text": "A new Pull Request has been created: ${{ steps.create_pr.outputs.pr_url }}"}'
-      # Step 8: Optionally, you can add a step to label the PR
-      # - name: Label the PR
