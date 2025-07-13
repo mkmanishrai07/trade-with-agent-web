@@ -44,7 +44,7 @@ jobs:
 
       # Step 3: Set up GitHub CLI (used to create PR)
       - name: Set up GitHub CLI
-        uses: cli/cli-action@v2
+        uses: actions/cli@v2
 
       # Step 4: Create the Pull Request using GitHub CLI
       - name: Create Pull Request using GitHub CLI
