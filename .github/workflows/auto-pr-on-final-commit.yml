@@ -13,18 +13,15 @@ jobs:
     if: contains(github.event.head_commit.message, 'final commit')
 
     steps:
-      # Step 1: Checkout the latest code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Extract the branch name and determine base branch
       - name: Extract branch info
         id: branchinfo
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
           echo "Detected branch: $BRANCH_NAME"
 
-          # Determine base branch based on prefix
           if [[ "$BRANCH_NAME" == dev-* ]]; then
             BASE_BRANCH="development"
           elif [[ "$BRANCH_NAME" == staging-* ]]; then
@@ -32,27 +29,27 @@ jobs:
           elif [[ "$BRANCH_NAME" == main-* ]]; then
             BASE_BRANCH="main"
           else
-            BASE_BRANCH="development"  # Default fallback
+            BASE_BRANCH="development"
           fi
 
           echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
 
-      # Step 3: Install GitHub CLI
       - name: Install GitHub CLI
         run: |
           sudo apt update
           sudo apt install gh -y
 
-      # Step 4: Create PR only if not already existing
+      - name: Fetch all branches for diff check
+        run: git fetch --all
+
       - name: Create Pull Request using GitHub CLI
         run: |
           BRANCH_NAME="${{ steps.branchinfo.outputs.branch }}"
           BASE_BRANCH="${{ steps.branchinfo.outputs.base_branch }}"
 
-          echo "⏳ Checking for existing PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
+          echo "🧪 Checking for existing PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
 
-          # Check for existing PR
           PR_EXISTS=$(gh pr list \
             --head "$BRANCH_NAME" \
             --base "$BASE_BRANCH" \
@@ -64,18 +61,25 @@ jobs:
             exit 0
           fi
 
-          echo "🚀 Creating PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
+          # Check if there are any changes between branches
+          echo "🔍 Checking diff between '$BASE_BRANCH' and '$BRANCH_NAME'..."
+          COMMITS=$(git rev-list "$BASE_BRANCH..$BRANCH_NAME" --count)
 
-          PR_JSON=$(gh pr create \
+          if [[ "$COMMITS" -eq 0 ]]; then
+            echo "⚠️ No changes between '$BRANCH_NAME' and '$BASE_BRANCH'. Skipping PR."
+            exit 0
+          fi
+
+          echo "🚀 Creating Pull Request from '$BRANCH_NAME' to '$BASE_BRANCH'..."
+
+          gh pr create \
             --title "Auto PR from $BRANCH_NAME" \
             --body "Automatically generated PR:\n- **Source:** \`$BRANCH_NAME\`\n- **Target:** \`$BASE_BRANCH\`\n- Triggered by \`final commit\`" \
             --base "$BASE_BRANCH" \
             --head "$BRANCH_NAME" \
-            --json number,url)
-
-          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
-          PR_URL=$(echo "$PR_JSON" | jq -r '.url')
-
-          echo "✅ Pull Request #$PR_NUMBER created: $PR_URL"
+            --reviewer your-github-username || {
+              echo "❌ Failed to create PR. Possibly due to incorrect head/base."
+              exit 1
+            }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
