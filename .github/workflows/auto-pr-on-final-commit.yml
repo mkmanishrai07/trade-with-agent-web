@@ -49,14 +49,15 @@ jobs:
           git add .
           git commit -m "Auto commit from workflow" || echo "No changes to commit"
           git push origin "${{ steps.branchinfo.outputs.branch }}"
-
       - name: Create Pull Request
         id: create_pr
         env:
-          GH_TOKEN: ${{ github.token }}  # Use default GitHub Actions token
+          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.branchinfo.outputs.branch }}
           BASE: ${{ steps.branchinfo.outputs.base_branch }}
         run: |
+          echo "${GH_TOKEN}" | gh auth login --with-token
+
           echo "📌 Creating PR from '$BRANCH' to '$BASE'..."
 
           EXISTING=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number')
