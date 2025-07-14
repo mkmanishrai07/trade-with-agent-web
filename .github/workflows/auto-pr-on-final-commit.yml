@@ -40,7 +40,6 @@ jobs:
           curl -fsSL https://github.com/cli/cli/releases/download/v2.49.0/gh_2.49.0_linux_amd64.deb -o gh.deb
           sudo dpkg -i gh.deb
           gh --version
-
       - name: Create Pull Request
         id: create_pr
         env:
@@ -61,13 +60,13 @@ jobs:
             exit 0
           fi
 
-          PR_URL=$(gh pr create \
+          gh pr create \
             --title "Auto PR from $BRANCH" \
             --body "Automatically generated PR:\n- Source: \`$BRANCH\`\n- Target: \`$BASE\`\n- Triggered by \`final commit\`" \
             --base "$BASE" \
-            --head "$BRANCH" \
-            --json url --jq '.url')
+            --head "$BRANCH"
 
+          PR_URL=$(gh pr view --json url --jq .url)
           echo "✅ PR created: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
 
