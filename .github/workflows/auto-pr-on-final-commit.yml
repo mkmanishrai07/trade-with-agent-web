@@ -16,11 +16,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Extract branch info
+      - name: Extract branch name and determine base branch
         id: branchinfo
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          echo "Detected branch: $BRANCH_NAME"
+          echo "Current branch: $BRANCH_NAME"
 
           if [[ "$BRANCH_NAME" == dev-* ]]; then
             BASE_BRANCH="development"
@@ -32,54 +32,50 @@ jobs:
             BASE_BRANCH="development"
           fi
 
-          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
-          echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Install GitHub CLI
+      - name: Install GitHub CLI (fixed version)
         run: |
-          sudo apt update
-          sudo apt install gh -y
+          curl -fsSL https://github.com/cli/cli/releases/download/v2.49.0/gh_2.49.0_linux_amd64.deb -o gh.deb
+          sudo dpkg -i gh.deb
+          gh --version
 
-      - name: Fetch all branches for diff check
-        run: git fetch --all
-
-      - name: Create Pull Request using GitHub CLI
+      - name: Ensure branch is pushed
         run: |
-          BRANCH_NAME="${{ steps.branchinfo.outputs.branch }}"
-          BASE_BRANCH="${{ steps.branchinfo.outputs.base_branch }}"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git status
+          git add .
+          git commit -m "Auto commit from workflow" || echo "No changes to commit"
+          git push origin "${{ steps.branchinfo.outputs.branch }}"
+      - name: Create Pull Request
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.branchinfo.outputs.branch }}
+          BASE: ${{ steps.branchinfo.outputs.base_branch }}
+        run: |
+          echo "${GH_TOKEN}" | gh auth login --with-token
 
-          echo "🧪 Checking for existing PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
+          echo "📌 Creating PR from '$BRANCH' to '$BASE'..."
 
-          PR_EXISTS=$(gh pr list \
-            --head "$BRANCH_NAME" \
-            --base "$BASE_BRANCH" \
-            --state open \
-            --json number --jq '.[0].number')
-
-          if [[ -n "$PR_EXISTS" ]]; then
-            echo "⚠️ PR already exists: #$PR_EXISTS"
+          EXISTING=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number')
+          if [[ -n "$EXISTING" ]]; then
+            echo "⚠️ PR already exists: #$EXISTING"
             exit 0
           fi
-
-          # Check if there are any changes between branches
-          echo "🔍 Checking diff between '$BASE_BRANCH' and '$BRANCH_NAME'..."
-          COMMITS=$(git rev-list "$BASE_BRANCH..$BRANCH_NAME" --count)
-
-          if [[ "$COMMITS" -eq 0 ]]; then
-            echo "⚠️ No changes between '$BRANCH_NAME' and '$BASE_BRANCH'. Skipping PR."
-            exit 0
-          fi
-
-          echo "🚀 Creating Pull Request from '$BRANCH_NAME' to '$BASE_BRANCH'..."
 
           gh pr create \
-            --title "Auto PR from $BRANCH_NAME" \
-            --body "Automatically generated PR:\n- **Source:** \`$BRANCH_NAME\`\n- **Target:** \`$BASE_BRANCH\`\n- Triggered by \`final commit\`" \
-            --base "$BASE_BRANCH" \
-            --head "$BRANCH_NAME" \
-            --reviewer your-github-username || {
-              echo "❌ Failed to create PR. Possibly due to incorrect head/base."
-              exit 1
-            }
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            --title "Auto PR from $BRANCH" \
+            --body "Automatically generated PR:\n- Source: \`$BRANCH\`\n- Target: \`$BASE\`\n- Triggered by \`final commit\`" \
+            --base "$BASE" \
+            --head "$BRANCH"
+
+          PR_URL=$(gh pr view --json url --jq .url)
+          echo "✅ PR created: $PR_URL"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Print PR URL
+        run: |
+          echo "🔗 PR: ${{ steps.create_pr.outputs.pr_url }}"
