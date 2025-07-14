@@ -13,11 +13,9 @@ jobs:
     if: contains(github.event.head_commit.message, 'final commit')
 
     steps:
-      # Step 1: Checkout the pushed code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Extract branch name and determine base branch
       - name: Extract branch name and determine base branch
         id: branchinfo
         run: |
@@ -37,17 +35,14 @@ jobs:
           echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
           echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
 
-      # Step 3: Install GitHub CLI
-      - name: Install GitHub CLI
-        run: |
-          sudo apt update
-          sudo apt install gh -y
+      - name: Set up GitHub CLI
+        uses: cli/gh-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 4: Create Pull Request
-      - name: Create Pull Request using GitHub CLI
+      - name: Create Pull Request
         id: create_pr
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.branchinfo.outputs.branch }}
           BASE: ${{ steps.branchinfo.outputs.base_branch }}
         run: |
@@ -70,9 +65,10 @@ jobs:
             --base "$BASE" \
             --head "$BRANCH" \
             --json url --jq '.url')
+
           echo "✅ PR created: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-        # Step 5: Print PR URL
+
       - name: Print PR URL
         run: |
           echo "🔗 PR: ${{ steps.create_pr.outputs.pr_url }}"
