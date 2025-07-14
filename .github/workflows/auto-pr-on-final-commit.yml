@@ -35,16 +35,16 @@ jobs:
           echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
           echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Install GitHub CLI
+      - name: Install GitHub CLI (for Ubuntu 24.04)
         run: |
-          sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key C99B11DEB97541F0
-          sudo apt-add-repository https://cli.github.com/packages
-          sudo apt update
-          sudo apt install gh -y
+          curl -fsSL https://github.com/cli/cli/releases/latest/download/gh_2.49.0_linux_amd64.deb -o gh.deb
+          sudo dpkg -i gh.deb
+          gh --version
 
       - name: Create Pull Request
         id: create_pr
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.branchinfo.outputs.branch }}
           BASE: ${{ steps.branchinfo.outputs.base_branch }}
         run: |
