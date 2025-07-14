@@ -52,7 +52,7 @@ jobs:
       - name: Create Pull Request
         id: create_pr
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.branchinfo.outputs.branch }}
           BASE: ${{ steps.branchinfo.outputs.base_branch }}
         run: |
