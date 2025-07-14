@@ -40,19 +40,24 @@ jobs:
           curl -fsSL https://github.com/cli/cli/releases/download/v2.49.0/gh_2.49.0_linux_amd64.deb -o gh.deb
           sudo dpkg -i gh.deb
           gh --version
+
+      - name: Ensure branch is pushed
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git status
+          git add .
+          git commit -m "Auto commit from workflow" || echo "No changes to commit"
+          git push origin "${{ steps.branchinfo.outputs.branch }}"
+
       - name: Create Pull Request
         id: create_pr
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}  # Use default GitHub Actions token
           BRANCH: ${{ steps.branchinfo.outputs.branch }}
           BASE: ${{ steps.branchinfo.outputs.base_branch }}
         run: |
           echo "📌 Creating PR from '$BRANCH' to '$BASE'..."
-
-          if [[ -z "$BRANCH" || -z "$BASE" ]]; then
-            echo "❌ Error: BRANCH or BASE is empty. Skipping PR creation."
-            exit 1
-          fi
 
           EXISTING=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number')
           if [[ -n "$EXISTING" ]]; then
