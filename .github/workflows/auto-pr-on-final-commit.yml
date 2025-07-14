@@ -36,9 +36,8 @@ jobs:
           echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Set up GitHub CLI
-        uses: cli/gh-action@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/setup-gh@v4
+
 
       - name: Create Pull Request
         id: create_pr
