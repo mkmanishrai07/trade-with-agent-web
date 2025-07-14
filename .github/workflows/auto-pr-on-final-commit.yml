@@ -72,7 +72,7 @@ jobs:
             --json url --jq '.url')
           echo "✅ PR created: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-            # Step 5: Print PR URL
+        # Step 5: Print PR URL
       - name: Print PR URL
         run: |
           echo "🔗 PR: ${{ steps.create_pr.outputs.pr_url }}"
