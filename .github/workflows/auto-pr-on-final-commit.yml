@@ -55,7 +55,7 @@ jobs:
       - name: Create Pull Request
         id: create_pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           SOURCE_BRANCH: ${{ steps.branchinfo.outputs.branch }}
           TARGET_BASE_BRANCH: ${{ steps.branchinfo.outputs.base_branch }}
         run: |
