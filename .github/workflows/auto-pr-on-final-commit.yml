@@ -33,8 +33,6 @@ jobs:
             BASE_BRANCH="staging"
           elif [[ "$BRANCH_NAME" == main-* ]]; then
             BASE_BRANCH="main"
-          else
-            BASE_BRANCH="development"  # fallback
           fi
 
           echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
@@ -46,11 +44,13 @@ jobs:
           sudo apt install -y gh jq
           gh --version
 
-      - name: Verify GitHub CLI auth (non-interactive)
+      - name: Authenticate GitHub CLI with GH_PAT (CI-safe)
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "🔐 Checking if GH CLI is authenticated using GH_TOKEN"
+          mkdir -p ~/.config/gh
+          echo -e "github.com:\n  oauth_token: $GH_TOKEN\n  git_protocol: https" > ~/.config/gh/hosts.yml
+          echo "🔐 Authenticated with GitHub CLI"
           gh auth status
 
       - name: Create Pull Request
