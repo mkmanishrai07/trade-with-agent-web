@@ -7,6 +7,10 @@ on:
       - staging
       - development
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   auto-create-pr:
     runs-on: ubuntu-latest
@@ -16,70 +20,71 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Extract branch info
+      - name: Extract branch name and determine base branch
         id: branchinfo
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          echo "Detected branch: $BRANCH_NAME"
+          echo "Current branch: $BRANCH_NAME"
 
+          BASE_BRANCH="development"
           if [[ "$BRANCH_NAME" == dev-* ]]; then
             BASE_BRANCH="development"
           elif [[ "$BRANCH_NAME" == staging-* ]]; then
             BASE_BRANCH="staging"
           elif [[ "$BRANCH_NAME" == main-* ]]; then
             BASE_BRANCH="main"
-          else
-            BASE_BRANCH="development"
           fi
 
-          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
-          echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Install GitHub CLI
         run: |
           sudo apt update
-          sudo apt install gh -y
+          sudo apt install -y gh jq
+          gh --version
 
-      - name: Fetch all branches for diff check
-        run: git fetch --all
-
-      - name: Create Pull Request using GitHub CLI
-        run: |
-          BRANCH_NAME="${{ steps.branchinfo.outputs.branch }}"
-          BASE_BRANCH="${{ steps.branchinfo.outputs.base_branch }}"
-
-          echo "🧪 Checking for existing PR from '$BRANCH_NAME' to '$BASE_BRANCH'..."
-
-          PR_EXISTS=$(gh pr list \
-            --head "$BRANCH_NAME" \
-            --base "$BASE_BRANCH" \
-            --state open \
-            --json number --jq '.[0].number')
-
-          if [[ -n "$PR_EXISTS" ]]; then
-            echo "⚠️ PR already exists: #$PR_EXISTS"
-            exit 0
-          fi
-
-          # Check if there are any changes between branches
-          echo "🔍 Checking diff between '$BASE_BRANCH' and '$BRANCH_NAME'..."
-          COMMITS=$(git rev-list "$BASE_BRANCH..$BRANCH_NAME" --count)
-
-          if [[ "$COMMITS" -eq 0 ]]; then
-            echo "⚠️ No changes between '$BRANCH_NAME' and '$BASE_BRANCH'. Skipping PR."
-            exit 0
-          fi
-
-          echo "🚀 Creating Pull Request from '$BRANCH_NAME' to '$BASE_BRANCH'..."
-
-          gh pr create \
-            --title "Auto PR from $BRANCH_NAME" \
-            --body "Automatically generated PR:\n- **Source:** \`$BRANCH_NAME\`\n- **Target:** \`$BASE_BRANCH\`\n- Triggered by \`final commit\`" \
-            --base "$BASE_BRANCH" \
-            --head "$BRANCH_NAME" \
-            --reviewer your-github-username || {
-              echo "❌ Failed to create PR. Possibly due to incorrect head/base."
-              exit 1
-            }
+      - name: Authenticate GitHub CLI with GH_PAT (CI-safe)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          mkdir -p ~/.config/gh
+          echo -e "github.com:\n  oauth_token: $GH_TOKEN\n  git_protocol: https" > ~/.config/gh/hosts.yml
+          echo "🔐 Authenticated with GitHub CLI"
+          gh auth status
+
+      - name: Create Pull Request
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          SOURCE_BRANCH: ${{ steps.branchinfo.outputs.branch }}
+          TARGET_BASE_BRANCH: ${{ steps.branchinfo.outputs.base_branch }}
+        run: |
+          echo "📌 Creating PR from '$SOURCE_BRANCH' to '$TARGET_BASE_BRANCH'..."
+
+          # Check if PR already exists
+          PR_LIST=$(gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BASE_BRANCH" --state open --json number 2>/dev/null)
+
+          if echo "$PR_LIST" | jq -e '.[0]' >/dev/null 2>&1; then
+            EXISTING_PR_NUMBER=$(echo "$PR_LIST" | jq -r '.[0].number')
+            echo "⚠️ PR already exists: #$EXISTING_PR_NUMBER"
+            echo "pr_url=https://github.com/${GITHUB_REPOSITORY}/pull/$EXISTING_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Create new PR
+          PR_URL=$(gh pr create \
+            --title "Auto PR: $SOURCE_BRANCH to $TARGET_BASE_BRANCH" \
+            --body "### 🤖 Automated Pull Request\n\n- **Source Branch:** \`$SOURCE_BRANCH\`\n- **Target Branch:** \`$TARGET_BASE_BRANCH\`\n\nTriggered by a commit containing 'final commit'." \
+            --base "$TARGET_BASE_BRANCH" \
+            --head "$SOURCE_BRANCH" \
+            --label "auto-pr" \
+            | grep -o 'https://github.com/[^ ]*')
+
+          echo "✅ PR created: $PR_URL"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Print PR URL
+        if: success()
+        run: |
+          echo "🔗 Pull Request URL: ${{ steps.create_pr.outputs.pr_url }}"
