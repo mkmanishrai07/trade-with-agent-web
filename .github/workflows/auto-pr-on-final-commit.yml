@@ -45,22 +45,13 @@ jobs:
           sudo apt update
           sudo apt install -y gh jq
           gh --version
-      - name: Authenticate GitHub CLI
-        run: echo "${GH_TOKEN}" | gh auth login --with-token
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
 
-      - name: Debug Environment and Branches
+      - name: Verify GitHub CLI auth (non-interactive)
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "✅ Verifying GitHub CLI authentication..."
+          echo "🔐 Checking if GH CLI is authenticated using GH_TOKEN"
           gh auth status
-
-          echo "🔍 Listing remote branches..."
-          git remote -v
-          git fetch --all
-          git branch -r
 
       - name: Create Pull Request
         id: create_pr
@@ -81,7 +72,7 @@ jobs:
             exit 0
           fi
 
-          # Create PR
+          # Create new PR
           PR_URL=$(gh pr create \
             --title "Auto PR: $SOURCE_BRANCH to $TARGET_BASE_BRANCH" \
             --body "### 🤖 Automated Pull Request\n\n- **Source Branch:** \`$SOURCE_BRANCH\`\n- **Target Branch:** \`$TARGET_BASE_BRANCH\`\n\nTriggered by a commit containing 'final commit'." \
