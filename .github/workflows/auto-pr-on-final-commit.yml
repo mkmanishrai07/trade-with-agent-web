@@ -123,6 +123,6 @@ jobs:
             --header 'Content-Type: application/json' \
             --data '{
               "transition": {
-                "id": "31"
+                "id": "5"
               }
             }'
