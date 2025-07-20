@@ -115,7 +115,7 @@ jobs:
           JIRA_URL: ${{ secrets.JIRA_URL }}
           JIRA_KEY: ${{ steps.branchinfo.outputs.jira_key }}
         run: |
-          echo "🔁 Transitioning JIRA issue $JIRA_KEY to 'Development Done'..."
+          echo "JIRA issue id: $JIRA_KEY , Email : $JIRA_EMAIL,  Jira url: $JIRA_URL"
           echo "Jira account ':' $JIRA_EMAIL "
           curl --request POST \
             --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" \
