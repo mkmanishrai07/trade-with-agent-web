@@ -1,10 +1,10 @@
-import type { Metadata } from "next"
-import { StrategyBuilder } from "@/components/strategy/strategy-builder"
+import type { Metadata } from "next";
+import { StrategyBuilder } from "@/components/strategy/strategy-builder";
 
 export const metadata: Metadata = {
   title: "Strategy Builder | TradeWithAgent",
   description: "Build and test custom trading strategies",
-}
+};
 
 export default function StrategyBuilderPage() {
   return (
@@ -15,5 +15,5 @@ export default function StrategyBuilderPage() {
 
       <StrategyBuilder />
     </div>
-  )
+  );
 }
