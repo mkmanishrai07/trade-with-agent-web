@@ -117,13 +117,14 @@ jobs:
         run: |
           echo "JIRA issue id: $JIRA_KEY , Email : $JIRA_EMAIL,  Jira url: $JIRA_URL"
           echo "Jira account ':' $JIRA_EMAIL "
-          # curl --request POST \
-          #   --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" \
-          #   --user "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-          #   --header 'Content-Type: application/json' \
-          #   --data '{
-          #     "transition": {
-          #       "id": "5"
-          #     }
-          #   }'
-          curl --request POST --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" --user "$JIRA_EMAIL:$JIRA_API_TOKEN" --header 'Content-Type: application/json' --data '{"transition": {"id": "5"}}'
+          curl --request POST \
+            --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" \
+            --user "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{
+              "transition": {
+                "id": "5"
+              }
+            }'
+
+          # curl --request POST --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" --user "$JIRA_EMAIL:$JIRA_API_TOKEN" --header 'Content-Type: application/json' --data '{"transition": {"id": "5"}}'
