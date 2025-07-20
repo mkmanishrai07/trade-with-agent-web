@@ -33,7 +33,7 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: Extract branch name and base branch from commit message
+      - name: Extract branch name, base branch, and JIRA key
         id: branchinfo
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
@@ -41,23 +41,24 @@ jobs:
           echo "🔎 Current branch: $BRANCH_NAME"
           echo "📝 Commit message: $COMMIT_MSG"
 
-          # Extract base branch and trigger keyword from commit message
-          # Expected format: checkout_module, final commit
-          BASE_BRANCH=$(echo "$COMMIT_MSG" | awk -F',' '{print $1}' | xargs)
-          TRIGGER_KEYWORD=$(echo "$COMMIT_MSG" | awk -F',' '{print $2}' | grep -i "final" | xargs)
+          # Expected format: base_branch, JIRA-123, final commit _anything
+          BASE_BRANCH=$(echo "$COMMIT_MSG" | cut -d',' -f1 | xargs)
+          JIRA_KEY=$(echo "$COMMIT_MSG" | cut -d',' -f2 | xargs)
+          TRIGGER_KEYWORD=$(echo "$COMMIT_MSG" | cut -d',' -f3 | grep -i "final" | xargs)
 
-          if [[ -z "$BASE_BRANCH" || -z "$TRIGGER_KEYWORD" ]]; then
-            echo "ℹ️ Commit message format not recognized or missing 'final' trigger."
-            echo "Expected format: base_branch_name, final commit"
+          if [[ -z "$BASE_BRANCH" || -z "$JIRA_KEY" || -z "$TRIGGER_KEYWORD" ]]; then
+            echo "ℹ️ Commit message format not recognized or missing required fields."
+            echo "Expected format: base_branch, JIRA-123, final commit"
             echo "Current commit message: $COMMIT_MSG"
-            echo "Skipping PR creation..."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "✅ Extracted base branch: $BASE_BRANCH"
+          echo "✅ Extracted JIRA Key: $JIRA_KEY"
           echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
           echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "jira_key=$JIRA_KEY" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Install GitHub CLI
@@ -93,7 +94,7 @@ jobs:
           # Create new PR
           PR_URL=$(gh pr create \
             --title "Auto PR: $SOURCE_BRANCH to $TARGET_BASE_BRANCH" \
-            --body "### 🤖 Automated Pull Request\n\n- **Source Branch:** \$SOURCE_BRANCH\\n- **Target Branch:** \$TARGET_BASE_BRANCH\\n\nTriggered by a commit containing 'final commit'." \
+            --body "### 🤖 Automated Pull Request\n\n- **Source Branch:** \`$SOURCE_BRANCH\`\n- **Target Branch:** \`$TARGET_BASE_BRANCH\`\n\nTriggered by a commit containing 'final commit'." \
             --base "$TARGET_BASE_BRANCH" \
             --head "$SOURCE_BRANCH" \
             | grep -o 'https://github.com/[^ ]*')
@@ -105,3 +106,23 @@ jobs:
         if: success() && steps.branchinfo.outputs.skip != 'true'
         run: |
           echo "🔗 Pull Request URL: ${{ steps.create_pr.outputs.pr_url }}"
+
+      - name: Transition JIRA issue to "Development Done"
+        if: success() && steps.branchinfo.outputs.skip != 'true'
+        env:
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_URL: ${{ secrets.JIRA_URL }}
+          JIRA_KEY: ${{ steps.branchinfo.outputs.jira_key }}
+            echo "Jira account ':' $JIRA_EMAIL "
+        run: |
+          echo "🔁 Transitioning JIRA issue $JIRA_KEY to 'Development Done'..."
+          curl --request POST \
+            --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" \
+            --user "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{
+              "transition": {
+                "id": "31"
+              }
+            }'
