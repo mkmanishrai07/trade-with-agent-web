@@ -1,130 +1,732 @@
+# =============================================================================
+# AUTOMATED PULL REQUEST AND JIRA WORKFLOW
+# =============================================================================
+#
+# PURPOSE:
+# This workflow automatically creates pull requests and updates JIRA issues
+# based on specific keywords in commit messages.
+#
+# TRIGGERS:
+# - Push events to any branch EXCEPT main, staging, or development
+# - Requires specific commit message format to trigger actions
+#
+# COMMIT MESSAGE FORMATS:
+# 1. PR Creation: "base_branch, JIRA-123, final commit"
+# 2. JIRA Only: "JIRA-123, Task completed"
+# 3. Both: "base_branch, JIRA-123, final commit Task completed"
+#
+# ACTIONS PERFORMED:
+# - Creates pull requests from current branch to specified base branch
+# - Transitions JIRA issues to "Development Done" status
+# - Handles existing PRs gracefully (reuses if already exists)
+# - Provides comprehensive error handling and validation
+# =============================================================================
+
 name: Auto PR on Final Commit
 
+# =============================================================================
+# WORKFLOW TRIGGERS
+# =============================================================================
+# Only trigger on pushes to non-protected branches
+# This prevents the workflow from running on main production branches
 on:
   push:
     branches-ignore:
-      - main
-      - staging
-      - development
+      - main # Production branch - never auto-create PRs here
+      - staging # Staging branch - never auto-create PRs here
+      # - development   # Development branch - never auto-create PRs here
 
+# =============================================================================
+# PERMISSIONS REQUIRED
+# =============================================================================
+# These permissions are needed for:
+# - contents: write - To read repository contents and branch information
+# - pull-requests: write - To create and manage pull requests
 permissions:
   contents: write
   pull-requests: write
 
+# =============================================================================
+# MAIN WORKFLOW JOB
+# =============================================================================
 jobs:
   auto-create-pr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Use latest Ubuntu runner for best compatibility
+
+    # =======================================================================
+    # WORKFLOW SKIP CONDITION
+    # =======================================================================
+    # Skip the entire workflow if "final commit" is not in the commit message
+    if: contains(github.event.head_commit.message, 'final commit')
 
     steps:
+      # =======================================================================
+      # STEP 1: CHECKOUT REPOSITORY CODE
+      # =======================================================================
+      # This step downloads the repository code to the runner
+      # Uses SSH key for authentication to access private repositories
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }} # SSH key for private repo access
 
+      # =======================================================================
+      # STEP 2: CONFIGURE SSH FOR GITHUB OPERATIONS
+      # =======================================================================
+      # Sets up SSH authentication for Git operations
+      # Required for accessing repository information and creating PRs
       - name: Set up SSH for GitHub
         run: |
+          # Create SSH directory and set proper permissions
           mkdir -p ~/.ssh
+
+          # Write SSH private key to file
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+
+          # Set secure permissions on SSH key (required for SSH to work)
           chmod 600 ~/.ssh/id_ed25519
+
+          # Add GitHub to known hosts to avoid SSH host verification prompts
           ssh-keyscan github.com >> ~/.ssh/known_hosts
 
+      # =======================================================================
+      # STEP 3: CONFIGURE GIT IDENTITY
+      # =======================================================================
+      # Sets up Git user information for any Git operations
+      # Required for proper attribution of any commits or operations
       - name: Set Git identity
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
+      # =======================================================================
+      # STEP 4: PARSE AND VALIDATE COMMIT MESSAGE
+      # =======================================================================
+      # This is the core logic step that:
+      # - Extracts information from commit message
+      # - Validates format and content
+      # - Determines what actions to take (PR creation, JIRA update, or both)
+      # - Sets workflow outputs for subsequent steps
       - name: Extract branch name, base branch, and JIRA key
-        id: branchinfo
+        id: branchinfo # This ID allows other steps to reference outputs from this step
         run: |
+          # ===================================================================
+          # INITIAL SETUP AND VARIABLE EXTRACTION
+          # ===================================================================
+          # Extract current branch name from GitHub context
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+
+          # Get the commit message that triggered this workflow
           COMMIT_MSG="${{ github.event.head_commit.message }}"
-          echo "🔎 Current branch: $BRANCH_NAME"
-          echo "📝 Commit message: $COMMIT_MSG"
 
-          # Expected format: base_branch, JIRA-123, final commit _anything
-          BASE_BRANCH=$(echo "$COMMIT_MSG" | cut -d',' -f1 | xargs)
-          JIRA_KEY=$(echo "$COMMIT_MSG" | cut -d',' -f2 | xargs)
-          TRIGGER_KEYWORD=$(echo "$COMMIT_MSG" | cut -d',' -f3 | grep -i "final" | xargs)
+          # ===================================================================
+          # COMMIT MESSAGE VALIDATION - PHASE 1: BASIC CHECKS
+          # ===================================================================
 
-          if [[ -z "$BASE_BRANCH" || -z "$JIRA_KEY" || -z "$TRIGGER_KEYWORD" ]]; then
-            echo "ℹ️ Commit message format not recognized or missing required fields."
-            echo "Expected format: base_branch, JIRA-123, final commit"
-            echo "Current commit message: $COMMIT_MSG"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Check 1: Ensure commit message is not empty
+          if [[ -z "$COMMIT_MSG" ]]; then
+            echo "Error: Commit message is empty"
+            exit 1
           fi
 
-          echo "✅ Extracted base branch: $BASE_BRANCH"
-          echo "✅ Extracted JIRA Key: $JIRA_KEY"
-          echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
-          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
-          echo "jira_key=$JIRA_KEY" >> "$GITHUB_OUTPUT"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+          # Check 2: Validate commit message length (max 500 characters)
+          if [[ ${#COMMIT_MSG} -gt 500 ]]; then
+            echo "Error: Commit message too long (max 500 characters)"
+            exit 1
+          fi
 
+          # ===================================================================
+          # COMMIT MESSAGE CLEANING AND FORMAT VALIDATION
+          # ===================================================================
+
+          # Clean the commit message:
+          # - Remove leading/trailing whitespace
+          # - Replace multiple spaces with single space
+          COMMIT_MSG=$(echo "$COMMIT_MSG" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -s ' ')
+
+          # Check 3: Validate comma-separated format (must have at least one comma)
+          COMMA_COUNT=$(echo "$COMMIT_MSG" | tr -cd ',' | wc -c)
+          if [[ $COMMA_COUNT -lt 1 ]]; then
+            echo "Error: Commit message must contain at least one comma"
+            echo "Expected format: base_branch, JIRA-123, final commit"
+            exit 1
+          fi
+
+          # ===================================================================
+          # PARSE COMMIT MESSAGE COMPONENTS
+          # ===================================================================
+          # Parse the comma-separated commit message into components:
+          # Format: base_branch, JIRA-123, final commit _anything
+          BASE_BRANCH=$(echo "$COMMIT_MSG" | cut -d',' -f1 | xargs)  # First part: target branch
+          JIRA_KEY=$(echo "$COMMIT_MSG" | cut -d',' -f2 | xargs)     # Second part: JIRA issue key
+          THIRD_PART=$(echo "$COMMIT_MSG" | cut -d',' -f3 | xargs)   # Third part: keywords
+
+          # ===================================================================
+          # JIRA KEY VALIDATION
+          # ===================================================================
+          # Validate JIRA key format (must match pattern like FF-1234, ABC-123, etc.)
+          # Pattern: 2-10 uppercase letters, hyphen, followed by numbers
+          if [[ -n "$JIRA_KEY" ]]; then
+            if ! echo "$JIRA_KEY" | grep -qE '^[A-Z]{2,10}-[0-9]+$'; then
+              echo "Error: Invalid JIRA key format: $JIRA_KEY"
+              echo "Expected format: ABC-123 (2-10 letters, hyphen, numbers)"
+              exit 1
+            fi
+          fi
+
+          # ===================================================================
+          # KEYWORD DETECTION AND ACTION DETERMINATION
+          # ===================================================================
+
+          # Check for "final commit" keyword (case insensitive)
+          # This keyword triggers pull request creation
+          if echo "$THIRD_PART" | grep -qi "final commit"; then
+            CREATE_PR="true"
+          else
+            CREATE_PR="false"
+          fi
+
+          # Check for JIRA automation keyword "Task completed" (case insensitive)
+          # This keyword triggers JIRA issue status transition
+          if echo "$COMMIT_MSG" | grep -qi "Task completed"; then
+            JIRA_AUTOMATION="true"
+          else
+            JIRA_AUTOMATION="false"
+          fi
+
+          # ===================================================================
+          # SPECIAL HANDLING FOR JIRA-ONLY TRANSITIONS
+          # ===================================================================
+          # If only JIRA automation is requested (no PR creation), 
+          # parse the commit message differently since there's no base branch
+          if [[ "$CREATE_PR" == "false" && "$JIRA_AUTOMATION" == "true" ]]; then
+            # Format: JIRA-123, Task completed
+            JIRA_KEY=$(echo "$COMMIT_MSG" | cut -d',' -f1 | xargs)
+            BASE_BRANCH=""  # No base branch needed for JIRA-only operations
+          fi
+
+          # ===================================================================
+          # VALIDATION PHASE 2: ACTION-SPECIFIC CHECKS
+          # ===================================================================
+
+          # Check 4: Validate base branch is present (only required for PR creation)
+          if [[ "$CREATE_PR" == "true" && -z "$BASE_BRANCH" ]]; then
+            echo "Error: Base branch not found in commit message."
+            echo "Expected format: base_branch, JIRA-123, final commit"
+            exit 1
+          fi
+
+          # ===================================================================
+          # EARLY BASE BRANCH VALIDATION - FAIL FAST APPROACH
+          # ===================================================================
+          # Validate that the target base branch actually exists in the repository
+          # This prevents creating PRs to non-existent branches
+          if [[ "$CREATE_PR" == "true" && -n "$BASE_BRANCH" ]]; then
+            echo "Validating base branch '$BASE_BRANCH' exists..."
+            
+            # Check if the base branch exists in the remote repository
+            if ! git ls-remote --heads origin "$BASE_BRANCH" | grep -q "$BASE_BRANCH"; then
+              echo "Error: Base branch '$BASE_BRANCH' does not exist in the repository"
+              echo ""
+              echo "Available branches:"
+              git ls-remote --heads origin | cut -f2 | sed 's/refs\/heads\///' | sort
+              echo ""
+              echo "Possible solutions:"
+              echo "1. Check for typos in the branch name"
+              echo "2. Create the branch: git checkout -b $BASE_BRANCH && git push origin $BASE_BRANCH"
+              echo "3. Use an existing branch name in your commit message"
+              echo ""
+              echo "Expected format: existing_branch_name, JIRA-123, final commit"
+              exit 1  # Fail the workflow completely if base branch is wrong
+            fi
+            echo "Base branch '$BASE_BRANCH' exists"
+          fi
+
+          # Check 5: Validate JIRA key is present for JIRA automation
+          if [[ "$JIRA_AUTOMATION" == "true" && -z "$JIRA_KEY" ]]; then
+            echo "Error: JIRA key not found in commit message."
+            echo "Expected format: JIRA-123, Task completed"
+            exit 1
+          fi
+
+          # ===================================================================
+          # FINAL VALIDATION: ENSURE AT LEAST ONE ACTION IS REQUESTED
+          # ===================================================================
+          # Skip if neither PR creation nor JIRA automation is requested
+          if [[ "$CREATE_PR" == "false" && "$JIRA_AUTOMATION" == "false" ]]; then
+            echo "Error: Neither 'final commit' nor 'Task completed' keywords found."
+            echo "Expected formats:"
+            echo "  - base_branch, JIRA-123, final commit (for PR only)"
+            echo "  - JIRA-123, Task completed (for JIRA transition only)"
+            echo "  - base_branch, JIRA-123, final commit Task completed (for both)"
+            exit 1
+          fi
+
+          # ===================================================================
+          # SET WORKFLOW OUTPUTS FOR SUBSEQUENT STEPS
+          # ===================================================================
+          # These outputs will be used by other steps in the workflow
+          echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"           # Current branch name
+          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"      # Target branch for PR
+          echo "jira_key=$JIRA_KEY" >> "$GITHUB_OUTPUT"           # JIRA issue key
+          echo "create_pr=$CREATE_PR" >> "$GITHUB_OUTPUT"         # Whether to create PR
+          echo "jira_automation=$JIRA_AUTOMATION" >> "$GITHUB_OUTPUT"  # Whether to update JIRA
+
+      # =======================================================================
+      # STEP 5: INSTALL REQUIRED TOOLS
+      # =======================================================================
+      # Install GitHub CLI (gh) and jq for JSON parsing
+      # These tools are needed for creating PRs and parsing API responses
       - name: Install GitHub CLI
-        if: steps.branchinfo.outputs.skip != 'true'
         run: |
+          # Update package list
           sudo apt update
+
+          # Install GitHub CLI and jq (JSON processor)
           sudo apt install -y gh jq
+
+          # Verify installation
           gh --version
 
+      # =======================================================================
+      # STEP 6: AUTHENTICATE GITHUB CLI
+      # =======================================================================
+      # Authenticate the GitHub CLI with the repository token
+      # Required for creating pull requests and accessing repository data
       - name: Authenticate GitHub CLI
-        if: steps.branchinfo.outputs.skip != 'true'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
+      # =======================================================================
+      # STEP 7: CREATE PULL REQUEST
+      # =======================================================================
+      # This step creates a pull request from the current branch to the target branch
+      # It handles both new PR creation and existing PR detection
       - name: Create Pull Request
-        if: steps.branchinfo.outputs.skip != 'true'
+        if: steps.branchinfo.outputs.create_pr == 'true'
         id: create_pr
         env:
-          SOURCE_BRANCH: ${{ steps.branchinfo.outputs.branch }}
-          TARGET_BASE_BRANCH: ${{ steps.branchinfo.outputs.base_branch }}
+          SOURCE_BRANCH: ${{ steps.branchinfo.outputs.branch }} # Current branch
+          TARGET_BASE_BRANCH: ${{ steps.branchinfo.outputs.base_branch }} # Target branch
+          JIRA_KEY: ${{ steps.branchinfo.outputs.jira_key }} # JIRA issue key
+          JIRA_ACCESS_KEY: ${{ secrets.JIRA_ACCESS_KEY }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_DOMAIN_URL: ${{ secrets.JIRA_DOMAIN_URL }}
+          PROJECT_KEY: ${{ secrets.PROJECT_KEY }} # JIRA project key for validation
         run: |
-          echo "📌 Creating PR from '$SOURCE_BRANCH' to '$TARGET_BASE_BRANCH'..."
+          # ===================================================================
+          # PR CREATION LOGIC
+          # ===================================================================
+          # Base branch already validated in Step 4, so we can proceed directly
+          echo "Creating PR from $SOURCE_BRANCH to $TARGET_BASE_BRANCH..."
 
-          # Check if PR already exists
-          PR_LIST=$(gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BASE_BRANCH" --state open --json number 2>/dev/null)
+          # ===================================================================
+          # JIRA CREDENTIALS VALIDATION - PHASE 1
+          # ===================================================================
+          # Validate that all required JIRA credentials are available
+          # This prevents attempting to fetch JIRA data with incomplete credentials
+          if [[ -z "$JIRA_EMAIL" || -z "$JIRA_ACCESS_KEY" || -z "$JIRA_DOMAIN_URL" ]]; then
+            echo "Error: JIRA credentials are not properly configured"
+            echo "Required secrets: JIRA_EMAIL, JIRA_ACCESS_KEY, JIRA_DOMAIN_URL"
+            echo "Please configure these secrets in your repository settings"
+            echo ""
+            echo "Skipping PR creation due to missing JIRA credentials"
+            exit 1  # Fail the workflow completely if JIRA credentials are missing
+          fi
 
+          # ===================================================================
+          # PROJECT KEY VALIDATION - PHASE 1.5
+          # ===================================================================
+          # Validate that PROJECT_KEY is configured for project-specific validation
+          # This ensures JIRA tickets belong to the expected project
+          if [[ -z "$PROJECT_KEY" ]]; then
+            echo "Error: PROJECT_KEY is not configured"
+            echo "Required secret: PROJECT_KEY"
+            echo "Please configure this secret in your repository settings"
+            echo "Example: If your JIRA tickets are ABC-123, set PROJECT_KEY=ABC"
+            echo ""
+            echo "Skipping PR creation due to missing PROJECT_KEY"
+            exit 1  # Fail the workflow completely if PROJECT_KEY is missing
+          fi
+
+          # ===================================================================
+          # JIRA ISSUE EXISTENCE VALIDATION - PHASE 2
+          # ===================================================================
+          # Validate that the JIRA issue actually exists in the system
+          # This prevents creating PRs for non-existent JIRA tickets
+          if [[ -n "$JIRA_KEY" ]]; then
+            echo "Validating JIRA issue '$JIRA_KEY' exists..."
+            
+            # Test JIRA issue existence with a minimal API call
+            JIRA_EXISTENCE_CHECK=$(curl -s --connect-timeout 10 --max-time 30 \
+              --user "$JIRA_EMAIL:$JIRA_ACCESS_KEY" \
+              --header 'Content-Type: application/json' \
+              "$JIRA_DOMAIN_URL/rest/api/3/issue/$JIRA_KEY?fields=key,project")
+            
+            # Check if the JIRA issue exists (valid response should contain the issue key)
+            if echo "$JIRA_EXISTENCE_CHECK" | grep -q "Issue does not exist\|404\|does not exist\|not found"; then
+              echo "Error: JIRA issue '$JIRA_KEY' does not exist"
+              echo ""
+              echo "Possible solutions:"
+              echo "1. Check for typos in the JIRA key: $JIRA_KEY"
+              echo "2. Verify the JIRA key exists in your JIRA instance"
+              echo "3. Ensure you have access to this JIRA issue"
+              echo "4. Check your JIRA domain URL: $JIRA_DOMAIN_URL"
+              echo ""
+              echo "Skipping PR creation due to invalid JIRA issue"
+              exit 1  # Fail the workflow completely if JIRA issue doesn't exist
+            fi
+            
+            # Additional validation: ensure we got a valid JSON response with the issue key
+            if ! echo "$JIRA_EXISTENCE_CHECK" | jq -e '.key' >/dev/null 2>&1; then
+              echo "Error: Invalid response from JIRA API for issue '$JIRA_KEY'"
+              echo "This may indicate authentication or permission issues"
+              echo ""
+              echo "Please verify:"
+              echo "1. JIRA credentials are correct"
+              echo "2. You have access to the JIRA instance"
+              echo "3. The JIRA domain URL is correct"
+              echo ""
+              echo "Skipping PR creation due to JIRA API issues"
+              exit 1  # Fail the workflow completely if JIRA API is not accessible
+            fi
+            
+            echo "JIRA issue '$JIRA_KEY' exists and is accessible"
+          else
+            echo "Error: JIRA key is empty or not provided"
+            echo "Expected format: base_branch, JIRA-123, final commit"
+            echo ""
+            echo "Skipping PR creation due to missing JIRA key"
+            exit 1  # Fail the workflow completely if JIRA key is missing
+          fi
+
+          # ===================================================================
+          # JIRA PROJECT VALIDATION - PHASE 2.5
+          # ===================================================================
+          # Validate that the JIRA issue belongs to the expected project
+          # This prevents creating PRs for JIRA tickets from wrong projects
+          echo "Validating JIRA issue '$JIRA_KEY' belongs to project '$PROJECT_KEY'..."
+
+          # Extract the project key from the JIRA issue
+          JIRA_ISSUE_PROJECT_KEY=$(echo "$JIRA_EXISTENCE_CHECK" | jq -r '.fields.project.key' 2>/dev/null)
+
+          # Validate that we successfully extracted the project key
+          if [[ -z "$JIRA_ISSUE_PROJECT_KEY" || "$JIRA_ISSUE_PROJECT_KEY" == "null" ]]; then
+            echo "Error: Could not determine project key for JIRA issue '$JIRA_KEY'"
+            echo "This may indicate permission issues or API problems"
+            echo ""
+            echo "Skipping PR creation due to project key extraction failure"
+            exit 1  # Fail the workflow completely if we can't get the project key
+          fi
+
+          # Compare the JIRA issue project key with the expected PROJECT_KEY
+          if [[ "$JIRA_ISSUE_PROJECT_KEY" != "$PROJECT_KEY" ]]; then
+            echo "Error: JIRA issue '$JIRA_KEY' belongs to project '$JIRA_ISSUE_PROJECT_KEY'"
+            echo "Expected project: '$PROJECT_KEY'"
+            echo ""
+            echo "This JIRA ticket is from a different project than expected."
+            echo "Please use a JIRA ticket from the correct project: $PROJECT_KEY"
+            echo ""
+            echo "Possible solutions:"
+            echo "1. Use a JIRA ticket from project $PROJECT_KEY (e.g., ${PROJECT_KEY}-123)"
+            echo "2. Update the PROJECT_KEY secret if you want to allow tickets from $JIRA_ISSUE_PROJECT_KEY"
+            echo "3. Create a new JIRA ticket in the correct project"
+            echo ""
+            echo "Skipping PR creation due to project mismatch"
+            exit 1  # Fail the workflow completely if project doesn't match
+          fi
+
+          echo "JIRA issue '$JIRA_KEY' belongs to the correct project '$PROJECT_KEY'"
+
+          # ===================================================================
+          # FETCH JIRA ISSUE DETAILS - PHASE 3
+          # ===================================================================
+          # Now that we've validated the JIRA issue exists and belongs to the correct project
+          # Fetch its details including the summary (title) and description for the PR
+          JIRA_TITLE=""
+          JIRA_DESCRIPTION=""
+
+          echo "Fetching JIRA issue details for $JIRA_KEY..."
+
+          # Fetch JIRA issue details including summary and description
+          # Using a more comprehensive fields request to get all needed data
+          JIRA_RESPONSE=$(curl -s --connect-timeout 10 --max-time 30 \
+            --user "$JIRA_EMAIL:$JIRA_ACCESS_KEY" \
+            --header 'Content-Type: application/json' \
+            "$JIRA_DOMAIN_URL/rest/api/3/issue/$JIRA_KEY?fields=summary,description,status")
+
+          # ===================================================================
+          # JIRA DETAILS VALIDATION - PHASE 4
+          # ===================================================================
+          # Validate that we successfully retrieved JIRA issue details
+          # This ensures we have the necessary information for the PR
+          if [[ $? -ne 0 || -z "$JIRA_RESPONSE" ]]; then
+            echo "Error: Failed to fetch JIRA issue details for '$JIRA_KEY'"
+            echo "This may indicate network issues or API problems"
+            echo ""
+            echo "Skipping PR creation due to JIRA data fetch failure"
+            exit 1  # Fail the workflow completely if we can't fetch JIRA details
+          fi
+
+          # Validate that the response contains valid JSON and required fields
+          if ! echo "$JIRA_RESPONSE" | jq -e '.fields.summary' >/dev/null 2>&1; then
+            echo "Error: Invalid JIRA response format for issue '$JIRA_KEY'"
+            echo "The response does not contain expected fields (summary, description)"
+            echo ""
+            echo "Skipping PR creation due to invalid JIRA response format"
+            exit 1  # Fail the workflow completely if JIRA response is malformed
+          fi
+
+          # Extract JIRA issue title/summary
+          JIRA_TITLE=$(echo "$JIRA_RESPONSE" | jq -r '.fields.summary' 2>/dev/null)
+
+          # Extract JIRA issue description (handle both text and structured content)
+          # JIRA API v3 uses Atlassian Document Format (ADF) for rich text content
+          JIRA_DESCRIPTION=$(echo "$JIRA_RESPONSE" | jq -r '.fields.description.content[0].content[0].text // .fields.description.content[0].text // .fields.description' 2>/dev/null)
+
+          # Clean up description - remove HTML tags and extra whitespace
+          # This ensures the description is readable in the PR body
+          if [[ -n "$JIRA_DESCRIPTION" && "$JIRA_DESCRIPTION" != "null" ]]; then
+            JIRA_DESCRIPTION=$(echo "$JIRA_DESCRIPTION" | sed 's/<[^>]*>//g' | sed 's/&nbsp;/ /g' | sed 's/&amp;/\&/g' | sed 's/&lt;/</g' | sed 's/&gt;/>/g' | tr -s ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          fi
+
+          # Final validation of extracted data
+          if [[ -z "$JIRA_TITLE" || "$JIRA_TITLE" == "null" ]]; then
+            echo "Error: Could not extract JIRA issue title/summary for '$JIRA_KEY'"
+            echo "The JIRA issue may not have a summary field or it may be empty"
+            echo ""
+            echo "Skipping PR creation due to missing JIRA issue title"
+            exit 1  # Fail the workflow completely if we can't get the JIRA title
+          fi
+
+          echo "JIRA issue details fetched successfully"
+          echo "Title: $JIRA_TITLE"
+          echo "Description length: ${#JIRA_DESCRIPTION} characters"
+
+          # ===================================================================
+          # CHECK FOR EXISTING PULL REQUEST
+          # ===================================================================
+          # Check if a pull request already exists between these branches
+          # This prevents creating duplicate PRs
+          PR_LIST=$(gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BASE_BRANCH" --state open --json number 2>/dev/null || echo "[]")
+
+          # If PR exists, use the existing one instead of creating a new one
           if echo "$PR_LIST" | jq -e '.[0]' >/dev/null 2>&1; then
             EXISTING_PR_NUMBER=$(echo "$PR_LIST" | jq -r '.[0].number')
-            echo "⚠️ PR already exists: #$EXISTING_PR_NUMBER"
+            echo "PR already exists: #$EXISTING_PR_NUMBER"
             echo "pr_url=https://github.com/${GITHUB_REPOSITORY}/pull/$EXISTING_PR_NUMBER" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Create new PR
+          # ===================================================================
+          # CREATE NEW PULL REQUEST
+          # ===================================================================
+          # Prepare PR title and body with JIRA information
+          # Use the validated JIRA title for the PR title
+          PR_TITLE="$JIRA_KEY: $JIRA_TITLE"
+
+          # Prepare PR body with JIRA description and additional metadata
+          # Use a heredoc WITHOUT quotes to allow variable expansion
+          PR_BODY=$(cat << EOF
+          ### Automated Pull Request
+
+          - **Source Branch:** \`$SOURCE_BRANCH\`
+          - **Target Branch:** \`$TARGET_BASE_BRANCH\`
+          - **JIRA Issue:** [$JIRA_KEY]($JIRA_DOMAIN_URL/browse/$JIRA_KEY)
+          - **Project key:** \`$PROJECT_KEY\`
+
+          EOF)
+
+          # Add JIRA description if available
+          if [[ -n "$JIRA_DESCRIPTION" && "$JIRA_DESCRIPTION" != "null" ]]; then
+            PR_BODY+=$'\n### JIRA Issue Description\n\n'
+            PR_BODY+="$JIRA_DESCRIPTION"
+            PR_BODY+=$'\n\n'
+          fi
+
+          PR_BODY+=$'\n---\n\n'
+          PR_BODY+='*This PR was automatically created by a commit containing "final commit".*'
+
+          # Create new pull request with JIRA-enhanced title and description
           PR_URL=$(gh pr create \
-            --title "Auto PR: $SOURCE_BRANCH to $TARGET_BASE_BRANCH" \
-            --body "### 🤖 Automated Pull Request\n\n- **Source Branch:** \`$SOURCE_BRANCH\`\n- **Target Branch:** \`$TARGET_BASE_BRANCH\`\n\nTriggered by a commit containing 'final commit'." \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY" \
             --base "$TARGET_BASE_BRANCH" \
             --head "$SOURCE_BRANCH" \
-            | grep -o 'https://github.com/[^ ]*')
+            | grep -o 'https://github.com/[^ ]*' || echo "")
 
-          echo "✅ PR created: $PR_URL"
+          # ===================================================================
+          # VALIDATE PR CREATION SUCCESS
+          # ===================================================================
+          if [[ -z "$PR_URL" ]]; then
+            echo "Error: Failed to create pull request"
+            echo "Please check GitHub permissions and try again"
+            exit 1  # Fail the workflow if PR creation fails
+          fi
+
+          echo "PR created: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
 
+      # =======================================================================
+      # STEP 8: DISPLAY PULL REQUEST URL
+      # =======================================================================
+      # Show the created pull request URL in the workflow logs
+      # This makes it easy to find and access the created PR
       - name: Print PR URL
-        if: success() && steps.branchinfo.outputs.skip != 'true'
+        if: success() && steps.branchinfo.outputs.create_pr == 'true'
         run: |
-          echo "🔗 Pull Request URL: ${{ steps.create_pr.outputs.pr_url }}"
+          echo "Pull Request URL: ${{ steps.create_pr.outputs.pr_url }}"
 
+      # =======================================================================
+      # STEP 9: JIRA ISSUE STATUS TRANSITION
+      # =======================================================================
+      # This step transitions JIRA issues to "Development Done" status
+      # It runs independently of PR creation and has comprehensive error handling
       - name: Transition JIRA issue to "Development Done"
-        if: success() && steps.branchinfo.outputs.skip != 'true'
+        if: steps.branchinfo.outputs.jira_automation == 'true' && steps.branchinfo.outputs.jira_key != ''
+        id: jira_transition # Add this ID
+        continue-on-error: true
         env:
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_ACCESS_KEY: ${{ secrets.JIRA_ACCESS_KEY }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_URL: ${{ secrets.JIRA_URL }}
-          JIRA_KEY: ${{ steps.branchinfo.outputs.jira_key }}
+          JIRA_DOMAIN_URL: ${{ secrets.JIRA_DOMAIN_URL }}
+          JIRA_TASK_KEY: ${{ steps.branchinfo.outputs.jira_key }}
         run: |
-          echo "JIRA issue id: $JIRA_KEY , Email : $JIRA_EMAIL,  Jira url: $JIRA_URL"
-          echo "Jira account ':' $JIRA_EMAIL "
-          curl --request POST \
-            --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" \
-            --user "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-            --header 'Content-Type: application/json' \
-            --data '{
-              "transition": {
-                "id": "5"
-              }
-            }'
+          # ===================================================================
+          # JIRA CREDENTIALS VALIDATION
+          # ===================================================================
+          if [[ -z "$JIRA_EMAIL" || -z "$JIRA_ACCESS_KEY" || -z "$JIRA_DOMAIN_URL" ]]; then
+            echo "Error: JIRA credentials or domain URL are not configured"
+            echo "Required secrets: JIRA_EMAIL, JIRA_ACCESS_KEY, JIRA_DOMAIN_URL"
+            exit 1
+          fi
 
-          # curl --request POST --url "$JIRA_URL/rest/api/3/issue/$JIRA_KEY/transitions" --user "$JIRA_EMAIL:$JIRA_API_TOKEN" --header 'Content-Type: application/json' --data '{"transition": {"id": "5"}}'
+          # ===================================================================
+          # GET CURRENT JIRA ISSUE STATUS
+          # ===================================================================
+          # First, get the current status of the issue
+          ISSUE_RESPONSE=$(curl -s --connect-timeout 10 --max-time 30 \
+            --user "$JIRA_EMAIL:$JIRA_ACCESS_KEY" \
+            --header 'Content-Type: application/json' \
+            "$JIRA_DOMAIN_URL/rest/api/3/issue/$JIRA_TASK_KEY?fields=status")
+
+          # ===================================================================
+          # VALIDATE JIRA ISSUE EXISTS
+          # ===================================================================
+          if echo "$ISSUE_RESPONSE" | grep -q "Issue does not exist\|404\|does not exist"; then
+            echo "Error: JIRA issue $JIRA_TASK_KEY does not exist"
+            echo "Please verify the JIRA key is correct"
+            exit 1
+          fi
+
+          # ===================================================================
+          # CHECK CURRENT STATUS
+          # ===================================================================
+          CURRENT_STATUS=$(echo "$ISSUE_RESPONSE" | jq -r '.fields.status.name' 2>/dev/null)
+
+          if [[ -z "$CURRENT_STATUS" || "$CURRENT_STATUS" == "null" ]]; then
+            echo "Error: Could not determine current status of issue $JIRA_TASK_KEY"
+            exit 1
+          fi
+
+          echo "Current status of $JIRA_TASK_KEY: $CURRENT_STATUS"
+
+          # ===================================================================
+          # SKIP IF ALREADY IN "DEVELOPMENT DONE"
+          # ===================================================================
+          if [[ "$CURRENT_STATUS" == "Development Done" ]]; then
+            echo "JIRA issue $JIRA_TASK_KEY is already in 'Development Done' status"
+            echo "Skipping transition - no action needed"
+            exit 0
+          fi
+
+          # ===================================================================
+          # GET AVAILABLE JIRA TRANSITIONS
+          # ===================================================================
+          TRANSITIONS_RESPONSE=$(curl -s --connect-timeout 10 --max-time 30 \
+            --user "$JIRA_EMAIL:$JIRA_ACCESS_KEY" \
+            --header 'Content-Type: application/json' \
+            "$JIRA_DOMAIN_URL/rest/api/3/issue/$JIRA_TASK_KEY/transitions")
+
+          # ===================================================================
+          # VALIDATE "DEVELOPMENT DONE" TRANSITION AVAILABILITY
+          # ===================================================================
+          if ! echo "$TRANSITIONS_RESPONSE" | grep -q "Development Done"; then
+            echo "Error: 'Development Done' transition is not available for issue $JIRA_TASK_KEY"
+            echo "Current status: $CURRENT_STATUS"
+            echo "Available transitions:"
+            echo "$TRANSITIONS_RESPONSE" | jq -r '.transitions[].name' 2>/dev/null || echo "Could not parse transitions"
+            exit 1
+          fi
+
+          # ===================================================================
+          # EXTRACT TRANSITION ID
+          # ===================================================================
+          TRANSITION_ID=$(echo "$TRANSITIONS_RESPONSE" | jq -r '.transitions[] | select(.name == "Development Done") | .id' 2>/dev/null)
+
+          if [[ -z "$TRANSITION_ID" || "$TRANSITION_ID" == "null" ]]; then
+            echo "Error: Could not find transition ID for 'Development Done'"
+            echo "This may indicate a JIRA configuration issue"
+            exit 1
+          fi
+
+          # ===================================================================
+          # EXECUTE JIRA STATUS TRANSITION
+          # ===================================================================
+          TRANSITION_RESPONSE=$(curl -s --connect-timeout 10 --max-time 30 \
+            --request POST \
+            --url "$JIRA_DOMAIN_URL/rest/api/3/issue/$JIRA_TASK_KEY/transitions" \
+            --user "$JIRA_EMAIL:$JIRA_ACCESS_KEY" \
+            --header 'Content-Type: application/json' \
+            --data "{
+              \"transition\": {
+                \"id\": \"$TRANSITION_ID\"
+              }
+            }")
+
+          # ===================================================================
+          # VALIDATE TRANSITION SUCCESS
+          # ===================================================================
+          if [[ -n "$TRANSITION_RESPONSE" ]]; then
+            echo "Error: JIRA transition failed"
+            echo "Response: $TRANSITION_RESPONSE"
+            exit 1
+          else
+            echo "Successfully transitioned JIRA issue $JIRA_TASK_KEY from '$CURRENT_STATUS' to 'Development Done'"
+            echo "transitioned=true" >> "$GITHUB_OUTPUT"  # Add this line
+          fi
+
+      # =======================================================================
+      # STEP 10: SKIP JIRA TRANSITION NOTIFICATION
+      # =======================================================================
+      # Informative step that shows when JIRA transition is skipped
+      # This helps with workflow debugging and understanding
+      - name: Skip JIRA transition
+        if: success() && steps.branchinfo.outputs.jira_automation == 'false' && steps.jira_transition.outputs.transitioned != 'true'
+        run: |
+          echo "Skipping JIRA transition - 'Task completed' keyword not found in commit message"
+
+      # =======================================================================
+      # STEP 11: FINAL WORKFLOW SUMMARY
+      # =======================================================================
+      # Provides a clear summary of what the workflow accomplished
+      # This step always runs (if: always()) to show results regardless of success/failure
+      - name: Workflow Summary
+        if: always()
+        run: |
+          echo "=== Workflow Summary ==="
+
+          # Show PR creation status
+          if [[ "${{ steps.branchinfo.outputs.create_pr }}" == "true" ]]; then
+            if [[ "${{ steps.create_pr.outputs.pr_created }}" == "true" ]]; then
+              echo "Pull Request: Created successfully"
+            else
+              echo "Pull Request: Failed to create"
+            fi
+          fi
+
+          # Show JIRA transition status
+          if [[ "${{ steps.branchinfo.outputs.jira_automation }}" == "true" ]]; then
+            echo "JIRA Transition: Attempted (check logs for details)"
+          fi
+
+          echo "========================"
